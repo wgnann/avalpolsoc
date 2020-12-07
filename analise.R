@@ -13,11 +13,15 @@ distancing <- read_csv("Desktop/avalpolsoc/csv/distancing.csv")
 
 # corrigindo data para dados a partir de 2015 e cidades com distanciamento
 tmp <- subset(deaths_updated, as.Date(date) > as.Date('2015-01-01'))
-deaths <- subset(tmp, is.element(city, distancing$city))
-nonfatal <- subset(nonfatal_updated, is.element(city, distancing$city))
+deaths2015 <- subset(tmp, is.element(city, distancing$city))
 rm(tmp)
 
+# dados a partir de 2019 para fazer o POLS
+deaths <- subset(deaths2015, as.Date(date) > as.Date('2019-01-01'))
+nonfatal <- subset(nonfatal_updated, is.element(city, distancing$city))
+
 # merge do infosiga com o plano SP
+deaths2015_sp <- merge(x = deaths2015, y = planosp_updated, by = c('date', 'city'), all.x = TRUE)
 deaths_sp <- merge(x = deaths, y = planosp_updated, by = c('date', 'city'), all.x = TRUE)
 nonfatal_sp <- merge(x = nonfatal, y = planosp_updated, by = c('date', 'city'), all.x = TRUE)
 
@@ -25,15 +29,19 @@ nonfatal_sp <- merge(x = nonfatal, y = planosp_updated, by = c('date', 'city'), 
 agg_death <- deaths_sp %>% group_by(date, city) %>% summarise(
     accidents=n(),
     distancing_index,
+    moto = sum(motorcycle),
     phase,
     fatal=1
 )
+agg_death <- unique(agg_death)
 agg_nonfatal <- nonfatal_sp %>% group_by(date, city) %>% summarise(
     accidents=n(),
     distancing_index,
+    moto = sum(motorcycle),
     phase,
     fatal=0
 )
+agg_nonfatal <- unique(agg_nonfatal)
 agg <- rbind(agg_death, agg_nonfatal)
 
 # tratando os missings
@@ -59,3 +67,27 @@ bptest(nmsdist)
 bptest(nmsplsp)
 robmsdist <- rlm(log(accidents) ~ city + dist_dummy + distancing_index, data=nomiss)
 robmsplsp <- rlm(log(accidents) ~ city + quarantine + phase, data=nomiss)
+
+# regressões de moto sem missing
+motodist <- lm(log(moto+1) ~ city + distancing_index, data=nomiss)
+motoplsp <- lm(log(moto+1) ~ city + phase, data=nomiss)
+bptest(motodist)
+bptest(motoplsp)
+motomsdist <- rlm(log(moto+1) ~ city + dist_dummy + distancing_index, data=nomiss)
+motomsplsp <- rlm(log(moto+1) ~ city + quarantine + phase, data=nomiss)
+
+# regressões de morte sem missing
+# trata morte
+deathnm <- agg_death
+deathnm$dist_dummy <- ifelse(is.na(deathnm$distancing_index), 0, 1)
+deathnm$distancing_index <- ifelse(is.na(deathnm$distancing_index), 0, deathnm$distancing_index)
+deathnm$phase <- ifelse(is.na(deathnm$phase), "AAANORMAL", deathnm$phase)
+deathnm$quarantine <- ifelse(as.Date(deathnm$date) >= as.Date('2020-03-24'), 1, 0)
+
+# regs propriamente ditas
+mortedist <- lm(log(accidents) ~ city + dist_dummy + distancing_index, data=deathnm)
+morteplsp <- lm(log(accidents) ~ city + quarantine + phase, data=deathnm)
+bptest(mortedist)
+bptest(morteplsp)
+robmortedist <- rlm(log(accidents) ~ city + dist_dummy + distancing_index, data=deathnm)
+robmorteplsp <- rlm(log(accidents) ~ city + quarantine + phase, data=deathnm)
